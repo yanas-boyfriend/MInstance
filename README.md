@@ -112,3 +112,9 @@ local Deserialized = MInstance.DeserializeInstance(Serialized, DeserializationSe
 
 print(Deserialized)
 ```
+
+---
+
+## More Information
+For more information such as benchmarks, you can refer to the Roblox DevForum post about MInstance:
+https://devforum.roblox.com/t/an-ultra-optimized-instance-serializer-that-can-serialize-40000-instances-and-compress-it-into-a-100k-character-string-in-only-07s/3818154
