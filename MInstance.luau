@@ -299,7 +299,7 @@ InstanceCreationInternalHooks.MeshPart = function(Properties)
 		Options["FluidFidelity"] = FluidFidelity
 	end
 	
-	-- this code chain of if nots is here on purpose
+	-- this code is chain of if nots is here on purpose
 	if not CollisionFidelity and not RenderFidelity and not FluidFidelity then
 		Options = nil
 	end
@@ -458,7 +458,7 @@ Minstance.SerializeInstance = function(TargetInstance: Instance, SerializationSe
 		IncludeDescendants = true,
 		CompressSerializedData = true,
 		EncodeInBase94 = false,
-		AnnoyingConsolePrints = true,
+		AnnoyingConsolePrints = false,
 		UseLegacySlowCompressor = false,
 		IncludeAttributes = true,
 		DisallowedProperties = NULL
