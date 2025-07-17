@@ -13,6 +13,7 @@ local CreateInstanceMap, ReverseInstanceMap -- these function are declared this 
 local InstanceReferenceCache = {}
 local CreatableInstancesCache = {}
 local PropertiesOfClassCache = {}
+local PropertyCompressionCount = 0 -- resets every mapping session, make sure to reset inside serializeinstance after use
 local Minstance = {}
 
 local InstanceCreationInternalHooks = {}
@@ -97,9 +98,7 @@ local IsClassCreatable = function(ClassName)
 end
 
 local SafelyIndexInto = function(Object, Index)
-	local Status, Value = pcall(function()
-		return __index(Object, Index)
-	end)
+	local Status, Value = pcall(__index, Object, Index)
 
 	if Status then
 		return Status, Value
@@ -152,13 +151,18 @@ local CreateAddressFromDescendantToParent = function(Descendant, Parent)
 	return Address
 end
 
-CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, MainInstanceReference, IncludeAttributes, DisallowedProperties)
+CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, MainInstanceReference, IncludeAttributes, DisallowedProperties, PropertyCompression)
 	local ClassName = __index(TargetInstance, "ClassName")
 
 	local Map = {
-		ClassName = ClassName,
-		Properties = {}
+		C = ClassName, -- the key of this dict was previously ClassName, shortened for compression
+		P = {} -- the key of this dict was previously Properties, shortened for compression
 	}
+	
+	if not PropertyCompression then
+		Map.PC = {} -- the key of this dict was previously PropertyCompression, shortened for compression
+		PropertyCompression = Map.PC
+	end
 
 	if not IsClassCreatable(ClassName) then
 		ThrowToConsole(`Skipping Instance "{TargetInstance:GetFullName()}" ({ClassName}) because it is not creatable.`)
@@ -166,7 +170,7 @@ CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, M
 	end
 
 	local FreshInstance, PropertiesOfClass
-	local PropertiesInMap = Map.Properties
+	local PropertiesInMap = Map.P
 	local FoundValidPropertyOnce = false
 	local CachedFreshInstance = InstanceReferenceCache[ClassName]
 	local PropertiesCache = PropertiesOfClassCache[ClassName]
@@ -207,22 +211,32 @@ CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, M
 						FoundValidPropertyOnce = true
 					end
 					
+					-- i just realized i can compress my serialized data further by generating a list of properties used in all of the instances and having that list in the main instance map like {Name = 1, BrickColor = 2, ...} and then the properties table of child instances would be {[1] = "name", [2] = enum.some.value}
+					local ShortenedProperty = PropertyCompression[Property]
+					
+					if not ShortenedProperty then
+						PropertyCompressionCount = PropertyCompressionCount + 1
+						
+						PropertyCompression[Property] = PropertyCompressionCount
+						ShortenedProperty = PropertyCompressionCount
+					end
+					
 					if typeof(ValueInOriginalInstance) == "Instance" then -- this is rare to occur
 						if ValueInOriginalInstance == MainInstanceReference then
-							PropertiesInMap[Property] = {["Pointer"] = {0}}
+							PropertiesInMap[ShortenedProperty] = {["Pointer"] = {0}}
 						else
 							if ValueInOriginalInstance:IsDescendantOf(MainInstanceReference) then
 								local Pointer = CreateAddressFromDescendantToParent(ValueInOriginalInstance, MainInstanceReference)
 								
 								if #Pointer >= 1 then
-									PropertiesInMap[Property] = {["Pointer"] = Pointer}
+									PropertiesInMap[ShortenedProperty] = {["Pointer"] = Pointer}
 								end
 							else
 								ThrowToConsole(`Skipping property "{Property}" of Instance "{TargetInstance:GetFullName()}" ({ClassName}) because the value of the property references an Instance that is not a descendant of the main Instance being serialized.`)
 							end
 						end
 					else
-						PropertiesInMap[Property] = ValueInOriginalInstance
+						PropertiesInMap[ShortenedProperty] = ValueInOriginalInstance
 					end
 				end
 			end
@@ -230,14 +244,14 @@ CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, M
 	end
 
 	if not FoundValidPropertyOnce then
-		Map.Properties = NULL
+		Map.P = NULL -- the key of this dict was previously Properties, shortened for compression
 	end
 	
 	if IncludeAttributes then
 		local Attributes = TargetInstance:GetAttributes()
 		
 		for _ in pairs(Attributes) do
-			Map.Attributes = Attributes
+			Map.A = Attributes -- the key of this dict was previously Attributes, shortened for compression
 			break
 		end
 	end
@@ -251,13 +265,14 @@ CreateInstanceMap = function(TargetInstance, IncludeDescendants, PrintProcess, M
 		local ChildrenCount = #Children
 
 		if ChildrenCount > 0 then
-			Map.Children = table_create(ChildrenCount)
+			Map.K = table_create(ChildrenCount) -- the key of this dict was previously Children, shortened for compression, now set to K as in Kids
+			local MicroOptimizationReference = Map.K
 
 			for _, Child in ipairs(Children) do
-				local NewInstanceMap = CreateInstanceMap(Child, true, PrintProcess, MainInstanceReference, IncludeAttributes, DisallowedProperties)
+				local NewInstanceMap = CreateInstanceMap(Child, true, PrintProcess, MainInstanceReference, IncludeAttributes, DisallowedProperties, PropertyCompression)
 
 				if NewInstanceMap then
-					table_insert(Map.Children, NewInstanceMap)
+					table_insert(MicroOptimizationReference, NewInstanceMap)
 				end
 			end
 		end
@@ -280,69 +295,98 @@ local CreateMeshPart = function(Id, Options)
 	end
 end
 
-InstanceCreationInternalHooks.MeshPart = function(Properties)
-	local Id = Properties.MeshId
-	local CollisionFidelity = Properties.CollisionFidelity
-	local RenderFidelity = Properties.RenderFidelity
-	local FluidFidelity = Properties.FluidFidelity
+InstanceCreationInternalHooks.MeshPart = function(Properties, InvertedPropertyCompression)
+	local Id
 	local Options = {}
+	local HandledProperties = {}
 	
-	if CollisionFidelity then
-		Options["CollisionFidelity"] = CollisionFidelity
+	-- WASTE OF CPU CYCLES I KNOW.. TODO: FIX
+	for PropertyId, Value in pairs(Properties) do
+		local PropertyName = InvertedPropertyCompression[PropertyId]
+
+		if PropertyName == "MeshContent" then
+			if not Id then
+				Id = Value
+			end
+			
+			HandledProperties[PropertyName] = true
+		elseif PropertyName == "MeshId" then
+			if not Id then
+				Id = Value
+			end
+
+			HandledProperties[PropertyName] = true
+		elseif PropertyName == "CollisionFidelity" then
+			Options["CollisionFidelity"] = Value
+			HandledProperties[PropertyName] = true
+		elseif PropertyName == "RenderFidelity" then
+			Options["RenderFidelity"] = Value
+			HandledProperties[PropertyName] = true
+		elseif PropertyName == "FluidFidelity" then
+			Options["FluidFidelity"] = Value
+			HandledProperties[PropertyName] = true
+		end
+	end
+
+	if not Id then
+		ThrowToConsole("Attempted to deserialize a MeshPart without a MeshId property. Returning default MeshPart.")
+		return Instance_new("MeshPart"), {}
 	end
 	
-	if RenderFidelity then
-		Options["RenderFidelity"] = RenderFidelity
-	end
-	
-	if FluidFidelity then
-		Options["FluidFidelity"] = FluidFidelity
-	end
-	
-	-- this code is chain of if nots is here on purpose
-	if not CollisionFidelity and not RenderFidelity and not FluidFidelity then
+	if not next(Options) then
 		Options = nil
 	end
 	
-	return CreateMeshPart(Id, Options), { -- avoid setting these properties for cpu cycles to not go to waste
-		MeshId = true,
-		CollisionFidelity = true,
-		RenderFidelity = true,
-		FluidFidelity = true,
-		MeshContent = true
-	}
+	-- silence the noise.
+	HandledProperties["MeshContent"] = true
+	
+	return CreateMeshPart(Id, Options), HandledProperties
 end
 
-ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperly, MainMapReference, TemporaryCacheTable)
-	local ClassName = Map.ClassName
-	local Properties = Map.Properties
-	local Children = Map.Children
-	local Attributes = Map.Attributes
+ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperly, MainMapReference, TemporaryCacheTable, PropertyCompression)
+	local ClassName = Map.C
+	local Properties = Map.P
+	local Children = Map.K
+	local Attributes = Map.A
 	local CallbackFunction = Map.Callback
 	local InternalPropertyHooks = EMPTY_TABLE
 	local UseInternalPropertyHooks = false -- CPU CYCLES MUST NOT GO TO WASTE!!
 	local CreationHook = InstanceCreationInternalHooks[ClassName]
 	local MainInstance
 	
+	if not PropertyCompression then
+		local PotentialPropertyCompression = Map.PC
+		
+		if not PotentialPropertyCompression then
+			return ThrowToConsole(`This version of MInstance is sadly not backwards compatible with MInstance 1.0 data due to changes in data structure to achieve more compression.`)
+		else
+			local ReversedPC = {}
+			
+			for PropertyName, PropertyId in pairs(PotentialPropertyCompression) do
+				ReversedPC[PropertyId] = PropertyName
+			end
+			
+			PropertyCompression = ReversedPC
+		end
+	end
+	
 	if CreationHook then
 		if ClassName == "MeshPart" then
 			if DeserializeMeshPartsProperly then
 				UseInternalPropertyHooks = true
-				MainInstance, InternalPropertyHooks = CreationHook(Properties)
+				MainInstance, InternalPropertyHooks = CreationHook(Properties, PropertyCompression)
 			else
 				MainInstance = Instance_new(ClassName)
 			end
 		else
-			MainInstance = CreationHook(Properties)
+			MainInstance = CreationHook(Properties, PropertyCompression)
 		end
 	else
 		MainInstance = Instance_new(ClassName)
 	end
 	
 	local SafelySetProperty = function(Property, Value)
-		local Status, Error = pcall(function()
-			__newindex(MainInstance, Property, Value)
-		end)
+		local Status, Error = pcall(__newindex, MainInstance, Property, Value)
 		
 		if not Status then
 			ThrowToConsole(`Unable to set property {Property} to Instance "{tostring(MainInstance)}" ({ClassName}) for reason: "{Error}"`)
@@ -360,7 +404,14 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 	end
 
 	if Properties then
-		for Property, Value in pairs(Properties) do
+		for PropertyId, Value in pairs(Properties) do
+			local PropertyName = PropertyCompression[PropertyId]
+			
+			if not PropertyName then
+				ThrowToConsole(`A property with an unknown name has been skipped due to it not being in the reverse table (PropertyCompression table). If you encounter this, data corruption might have occured to the serialized data.`)
+				continue
+			end
+			
 			if type(Value) == "table" then
 				local Location = Value.Pointer
 				
@@ -373,7 +424,7 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 						else
 							for _, Index in ipairs(Location) do
 								if CurrentlyPointingTo then
-									local ChildrenList = CurrentlyPointingTo.Children
+									local ChildrenList = CurrentlyPointingTo.K
 
 									if ChildrenList then
 										local IsValidMap = ChildrenList[Index]
@@ -381,12 +432,12 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 										if IsValidMap then
 											CurrentlyPointingTo = IsValidMap
 										else
-											ThrowToConsole(`Skipped setting property "{Property}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
+											ThrowToConsole(`Skipped setting property "{PropertyName}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
 											break
 										end
 									end
 								else
-									local ChildrenList = MainMapReference.Children
+									local ChildrenList = MainMapReference.K
 
 									if ChildrenList then
 										local IsValidMap = ChildrenList[Index]
@@ -394,7 +445,7 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 										if IsValidMap then
 											CurrentlyPointingTo = IsValidMap
 										else
-											ThrowToConsole(`Skipped setting property "{Property}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
+											ThrowToConsole(`Skipped setting property "{PropertyName}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
 											break
 										end
 									end
@@ -405,24 +456,24 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 						local CachedInstance = TemporaryCacheTable[CurrentlyPointingTo]
 						
 						if CachedInstance then
-							SafelySetProperty(Property, CachedInstance)
+							SafelySetProperty(PropertyName, CachedInstance)
 						else
 							CurrentlyPointingTo.Callback = function(GotInstance)
-								SafelySetProperty(Property, GotInstance)
+								SafelySetProperty(PropertyName, GotInstance)
 							end
 						end
 					else
-						ThrowToConsole(`Skipped setting property "{Property}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
+						ThrowToConsole(`Skipped setting property "{PropertyName}" to Instance "{tostring(MainInstance)}" because it was trying to find the Instance that the property was referencing to but could not find it.`)
 					end
 				end
 			else
 				if UseInternalPropertyHooks then -- CPU CYCLES MUST NOT GO TO WASTE!!
-					if InternalPropertyHooks[Property] then
+					if InternalPropertyHooks[PropertyName] then
 						continue
 					end
 				end
 				
-				SafelySetProperty(Property, Value)
+				SafelySetProperty(PropertyName, Value)
 			end
 		end
 	end
@@ -435,7 +486,7 @@ ReverseInstanceMap = function(Map, ParentOfInstance, DeserializeMeshPartsProperl
 	
 	if Children then
 		for _, Child in ipairs(Children) do
-			ReverseInstanceMap(Child, MainInstance, DeserializeMeshPartsProperly, MainMapReference, TemporaryCacheTable)
+			ReverseInstanceMap(Child, MainInstance, DeserializeMeshPartsProperly, MainMapReference, TemporaryCacheTable, PropertyCompression)
 		end
 	end
 
@@ -507,8 +558,16 @@ Minstance.SerializeInstance = function(TargetInstance: Instance, SerializationSe
 
 		StartBenchmarkTime = os_clock()
 	end
+	
+	if PropertyCompressionCount > 0 then
+		PropertyCompressionCount = 0
+	end
 
 	local MainMap = CreateInstanceMap(TargetInstance, IncludeDescendants, AnnoyingConsolePrints, TargetInstance, IncludeAttributes, DisallowedProperties)
+	
+	if PropertyCompressionCount > 0 then
+		PropertyCompressionCount = 0
+	end
 	
 	if AnnoyingConsolePrints then
 		if IncludeDescendants then
@@ -518,7 +577,7 @@ Minstance.SerializeInstance = function(TargetInstance: Instance, SerializationSe
 		end
 	end
 	
-	local BinaryEncoded = BufferEncoder.write(MainMap)
+	local BinaryEncoded = BufferEncoder.write(MainMap, nil, nil, true)
 
 	if not CompressSerializedData then
 		if EncodeInBase94 then
@@ -565,7 +624,7 @@ Minstance.SerializeInstance = function(TargetInstance: Instance, SerializationSe
 				if Compressed:match("String passed is too short to compress.") then -- TODO: implemetn proper fix and not this bandaid solution just beacause i have to sleep soon
 					-- TODO: implemetn proper fix and not this bandaid solution just beacause i have to sleep soon
 					MainMap[string.rep("a", 20)] = true
-					BinaryEncoded = BufferEncoder.write(MainMap)
+					BinaryEncoded = BufferEncoder.write(MainMap, nil, nil, true)
 					BinaryEncodedString = buffer_tostring(BinaryEncoded)
 					Compressed = NewCompress.Compress(BinaryEncodedString)
 				else
@@ -653,31 +712,31 @@ Minstance.DeserializeInstance = function(SerializedData: string, Deserialization
 			if IsBase94Encoded then
 				local BinaryFormat = OldCompress.Decompress(SerializedData)
 
-				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat))
+				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat), nil, nil, true)
 			else
 				local BinaryFormat = OldCompress.DecompressNoEncoding(SerializedData)
 
-				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat))
+				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat), nil, nil, true)
 			end
 		else
 			if IsBase94Encoded then
 				local Base94Decoded = buffer_tostring(Base94.decode(buffer_fromstring(SerializedData)))
 				local BinaryFormat = NewCompress.Decompress(Base94Decoded)
 
-				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat))
+				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat), nil, nil, true)
 			else
 				local BinaryFormat = NewCompress.Decompress(SerializedData)
 
-				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat))
+				MainMap = BufferEncoder.read(buffer_fromstring(BinaryFormat), nil, nil, true)
 			end
 		end
 	else
 		if IsBase94Encoded then
 			local BinaryBuffer = Base94.decode(buffer_fromstring(SerializedData))
 
-			MainMap = BufferEncoder.read(BinaryBuffer)
+			MainMap = BufferEncoder.read(BinaryBuffer, nil, nil, true)
 		else
-			MainMap = BufferEncoder.read(buffer_fromstring(SerializedData))
+			MainMap = BufferEncoder.read(buffer_fromstring(SerializedData), nil, nil, true)
 		end
 	end
 
