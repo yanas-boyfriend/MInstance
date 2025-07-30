@@ -1,8 +1,100 @@
-If I can't be a good enough partner for my girl, then I hope I can be a decent developer that contributes into making the lives of other developers easier. :frowning_face: 
+# MInstance (Minifyinstance)
 
 MInstance is an open source, high performance, and lightweight Instance Serialization Module for Roblox Instances written in pure Luau. It has pretty much everything that you would need. Not only does it beat every other modules in terms of serialization speed, but also in serialized data compression ratio. This has only been in development for 2 days, but already has all of the features you need, while not letting a single CPU cycle go to waste.
 
-Current Version: 1.1
+---
+
+## Performance (v1.1)
+
+
+
+### > Test #1: [Crossroads-Classic-Map.rbxm](https://devforum.roblox.com/uploads/short-url/5IGRBlugw4mO45y3UYkvwoH8Xjo.rbxm) (32.0 KB) — 1,736 Instances
+
+<details>
+<summary>Test #1 - MInstance</summary>
+
+- **Serialization Time:** `0.0198 seconds`
+- **Compression Time:** `0.0018 seconds`
+- **Character count of serialized data before compression:** `127,105` (Previously `383,889`)
+- **Character count of serialized data after compression:** `31,914` (Previously `33,767`)
+
+</details>
+
+<details>
+<summary>Test #1 - RBLXSerialize</summary>
+
+- **Serialization Time:** `0.1836 seconds`
+- **Character count of serialized data after compression:** `58,779`
+
+</details>
+
+<details>
+<summary>Test #1 - SerializationService</summary>
+
+- **Serialization Time:** `0.0051 seconds` 😨
+- **Character count of serialized data:** `32,791`
+
+</details>
+
+
+
+### > Test #2: [Havoc-Map.rbxm](https://devforum.roblox.com/uploads/short-url/weN8KgfBGaUUu0vIakVj7gk9qwE.rbxm) (2.2 MB) — 30,064 Instances
+
+<details>
+<summary>Test #2 - MInstance</summary>
+
+- **Serialization Time:** `0.3673 seconds`
+- **Compression Time:** `0.0305 seconds`
+- **Character count of serialized data before compression:** `2,690,101` (Previously `8,960,137`)
+- **Character count of serialized data after compression:** `628,698` (Previously `687,659`)
+
+</details>
+
+<details>
+<summary>Test #2 - RBLXSerialize</summary>
+ERROR: `RBLXSerialize.Encoders.Instances:26: attempt to concatenate string with nil`
+
+> If I were to guess, serialization time would probably be around `1.4 seconds`.
+
+</details>
+
+<details>
+<summary>Test #2 - SerializationService</summary>
+
+- **Serialization Time:** `0.0671 seconds` 😨
+- **Character count of serialized data:** `2,331,507`
+
+</details>
+
+
+
+### > Test #3: `Instance.new("Part")`
+
+<details>
+<summary>Test #3 - MInstance</summary>
+
+- **Serialization Time:** `0.00002 seconds`
+- **Compression Time:** `0.000003 seconds`
+- **Character count of serialized data before compression:** `43` 🤮
+- **Character count of serialized data after compression:** `39` 🤮
+
+</details>
+
+<details>
+<summary>Test #3 - RBLXSerialize</summary>
+
+- **Serialization Time:** `0.0005 seconds`
+- **Character count of serialized data after compression:** `4`
+
+</details>
+
+<details>
+<summary>Test #3 - SerializationService</summary>
+
+- **Serialization Time:** `0.006 seconds`
+- **Character count of serialized data:** `2,550`
+
+</details>
 
 ---
 
@@ -112,9 +204,3 @@ local Deserialized = MInstance.DeserializeInstance(Serialized, DeserializationSe
 
 print(Deserialized)
 ```
-
----
-
-## More Information
-For more information such as benchmarks, you can refer to the Roblox DevForum post about MInstance:
-https://devforum.roblox.com/t/an-ultra-optimized-instance-serializer-that-can-serialize-40000-instances-and-compress-it-into-a-100k-character-string-in-only-07s/3818154
