@@ -13,28 +13,27 @@ Roblox DevForum: [https://devforum.roblox.com/t/new-update-an-ultra-optimized-in
 | | MInstance | RBLXSerialize | SerializationService |
 | :--- | :--- | :--- | :--- |
 | **Serialization Time** | `0.0198 seconds` | `0.1836 seconds` | `0.0051 seconds` 😨 |
-| **Compression Time** | `0.0018 seconds` | N/A | N/A |
-| **Serialized data character count** | `127,105` (uncompressed) | N/A | `32,791` |
-| **Compressed data character count** | `31,914` | `58,779` | N/A |
+| **Compression Time** | `0.0018 seconds` |  | |
+| **Serialized data character count** | `127,105` (uncompressed) | `58,779` | `32,791` |
+| **Compressed data character count** | `31,914` | `58,779` | |
 
 ### Test \#2: [Havoc-Map.rbxm](https://devforum.roblox.com/uploads/short-url/weN8KgfBGaUUu0vIakVj7gk9qwE.rbxm) (2.2 MB) — 30,064 Instances
 
 | | MInstance | RBLXSerialize | SerializationService |
 | :--- | :--- | :--- | :--- |
 | **Serialization Time** | `0.3673 seconds` | ERROR | `0.0671 seconds` 😨 |
-| **Compression Time** | `0.0305 seconds` | N/A | N/A |
-| **Serialized data character count** | `2,690,101` (uncompressed) | N/A | `2,331,507` |
-| **Compressed data character count** | `628,698` | N/A | N/A |
-| **Note** | | If I were to guess, serialization time would probably be around `1.4 seconds`.| |
+| **Compression Time** | `0.0305 seconds` | ERROR | |
+| **Serialized data character count** | `2,690,101` (uncompressed) | ERROR | `2,331,507` |
+| **Compressed data character count** | `628,698` | ERROR | |
 
 ### Test \#3: `Instance.new("Part")`
 
 | | MInstance | RBLXSerialize | SerializationService |
 | :--- | :--- | :--- | :--- |
 | **Serialization Time** | `0.00002 seconds` | `0.0005 seconds` | `0.006 seconds` |
-| **Compression Time** | `0.000003 seconds` | N/A | N/A |
-| **Serialized data character count** | `43` (uncompressed) 🤮 | N/A | `2,550` |
-| **Compressed data character count** | `39` 🤮 | `4` | N/A |
+| **Compression Time** | `0.000003 seconds` | | |
+| **Serialized data character count** | `43` (uncompressed) 🤮 | | `2,550` |
+| **Compressed data character count** | `39` 🤮 | `4` | |
 
 -----
 
